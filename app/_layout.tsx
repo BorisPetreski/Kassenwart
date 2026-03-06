@@ -1,57 +1,63 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import React, { useEffect } from "react";
+import { ActivityIndicator, View } from "react-native";
+import { Stack, useRouter, useSegments } from "expo-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AuthProvider, useAuth } from "../src/providers/AuthProvider";
+import { ui } from "../src/ui/atoms";
+import { StatusBar } from "expo-status-bar";
 
-import { useColorScheme } from '@/components/useColorScheme';
+const queryClient = new QueryClient();
 
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { session, isLoading, orgId, isOrgLoading } = useAuth();
+  const router = useRouter();
+  const segments = useSegments() as string[];
 
-export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
-  initialRouteName: '(tabs)',
-};
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-export default function RootLayout() {
-  const [loaded, error] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
-  useEffect(() => {
-    if (error) throw error;
-  }, [error]);
+  const loading = isLoading || isOrgLoading;
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    if (loading) return;
+
+    const first = String(segments?.[0] ?? "");
+    const inAuth = first === "(auth)";
+    const inOnboarding = first === "(onboarding)";
+
+    if (!session && !inAuth) {
+      router.replace("/(auth)/login");
+      return;
     }
-  }, [loaded]);
 
-  if (!loaded) {
-    return null;
+    if (session && !orgId && !inOnboarding) {
+      router.replace("/(onboarding)");
+      return;
+    }
+
+    if (session && orgId && (inAuth || inOnboarding)) {
+      router.replace("/(tabs)/invoices");
+      return;
+    }
+  }, [loading, session, orgId, segments, router]);
+
+  if (loading) {
+    return (
+      <View style={[ui.screen, { alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator />
+      </View>
+    );
   }
 
-  return <RootLayoutNav />;
+  return <>{children}</>;
 }
 
-function RootLayoutNav() {
-  const colorScheme = useColorScheme();
-
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-      </Stack>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <StatusBar style="light" />
+      <AuthProvider>
+        <AuthGate>
+          <Stack screenOptions={{ headerShown: false }} />
+        </AuthGate>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }

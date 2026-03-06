@@ -1,71 +1,41 @@
-import React from 'react';
-import { SymbolView } from 'expo-symbols';
-import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
+import React from "react";
+import { Tabs } from "expo-router";
+import { useAuth } from "../../src/providers/AuthProvider";
+import { HeaderLogout } from "../../src/ui/HeaderLogout";
 
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function TabsLayout() {
+  const { role } = useAuth();
+  const isTreasurer = role === "treasurer";
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
-            />
-          ),
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable style={{ marginRight: 15 }}>
-                {({ pressed }) => (
-                  <SymbolView
-                    name={{ ios: 'info.circle', android: 'info', web: 'info' }}
-                    size={25}
-                    tintColor={Colors[colorScheme].text}
-                    style={{ opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="two"
-        options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
-            />
-          ),
-        }}
-      />
+        headerShown: true,
+        headerStyle: { backgroundColor: "#0B1220" },
+        headerTintColor: "#EAF0FF",
+        headerTitleStyle: { fontWeight: "900" },
+        headerRight: () => <HeaderLogout />,
+
+        tabBarStyle: {
+          backgroundColor: "#0B1220",
+          borderTopColor: "rgba(255,255,255,0.12)",
+        },
+        tabBarActiveTintColor: "#EAF0FF",
+        tabBarInactiveTintColor: "#91A0C5",
+      }}
+    >
+      <Tabs.Screen name="invoices" options={{ title: "Rechnungen" }} />
+      <Tabs.Screen name="board" options={{ title: "Aushang" }} />
+
+      {isTreasurer ? (
+        <>
+          <Tabs.Screen name="admin" options={{ title: "Übersicht" }} />
+          <Tabs.Screen name="members" options={{ title: "Mitglieder" }} />
+          <Tabs.Screen name="settings" options={{ title: "Labels" }} />
+          <Tabs.Screen name="events" options={{ title: "Events" }} />
+          <Tabs.Screen name="ledger" options={{ title: "Buchungen" }} />
+        </>
+      ) : null}
     </Tabs>
   );
 }
