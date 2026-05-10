@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../providers/AuthProvider";
 import { Card, H2, P } from "./atoms";
 
 export function DebugCard() {
-  const { orgId, role, isOrgLoading } = useAuth();
+  const { orgId, role, isOrgLoading, orgLoaded } = useAuth();
   const [email, setEmail] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
 
@@ -24,6 +23,7 @@ export function DebugCard() {
       <P dim>OrgId: {orgId || "—"}</P>
       <P dim>Role: {role || "—"}</P>
       <P dim>OrgLoading: {String(isOrgLoading)}</P>
+      <P dim>OrgLoaded: {String(orgLoaded)}</P>
     </Card>
   );
 }

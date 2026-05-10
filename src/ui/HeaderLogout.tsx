@@ -1,26 +1,28 @@
 import React from "react";
 import { Alert, Pressable, Text } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
+import { useT } from "../i18n/LanguageProvider";
 import { useAuth } from "../providers/AuthProvider";
 
 export function HeaderLogout() {
   const { signOut } = useAuth();
+  const { t } = useT();
   const qc = useQueryClient();
 
   return (
     <Pressable
       onPress={() => {
-        Alert.alert("Logout?", "Willst du dich wirklich ausloggen?", [
-          { text: "Abbrechen", style: "cancel" },
+        Alert.alert(t.auth.logoutTitle, t.auth.logoutConfirm, [
+          { text: t.common.cancel, style: "cancel" },
           {
-            text: "Logout",
+            text: t.auth.logout,
             style: "destructive",
             onPress: async () => {
               try {
                 await signOut();
-                qc.clear(); // ✅ important: remove cached org data
+                qc.clear();
               } catch (e: any) {
-                Alert.alert("Fehler", e?.message ?? "Logout fehlgeschlagen");
+                Alert.alert(t.common.error, e?.message ?? t.auth.logoutError);
               }
             },
           },
@@ -28,7 +30,7 @@ export function HeaderLogout() {
       }}
       style={{ paddingHorizontal: 12, paddingVertical: 6 }}
     >
-      <Text style={{ color: "#EAF0FF", fontWeight: "900" }}>Logout</Text>
+      <Text style={{ color: "#EAF0FF", fontWeight: "900" }}>{t.auth.logout}</Text>
     </Pressable>
   );
 }

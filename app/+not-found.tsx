@@ -1,40 +1,19 @@
-import { Link, Stack } from 'expo-router';
-import { StyleSheet } from 'react-native';
-
-import { Text, View } from '@/components/Themed';
+import { Link, Stack } from "expo-router";
+import { View } from "react-native";
+import { H1, P, ui } from "../src/ui/atoms";
 
 export default function NotFoundScreen() {
   return (
     <>
-      <Stack.Screen options={{ title: 'Oops!' }} />
-      <View style={styles.container}>
-        <Text style={styles.title}>This screen doesn't exist.</Text>
-
-        <Link href="/" style={styles.link}>
-          <Text style={styles.linkText}>Go to home screen!</Text>
-        </Link>
+      <Stack.Screen options={{ title: "Nicht gefunden", headerStyle: { backgroundColor: "#0B1220" }, headerTintColor: "#EAF0FF" }} />
+      <View style={[ui.screen, { alignItems: "center", justifyContent: "center" }]}>
+        <View style={ui.content}>
+          <H1>Seite nicht gefunden</H1>
+          <Link href="/(tabs)/invoices">
+            <P dim>Zurück zur App</P>
+          </Link>
+        </View>
       </View>
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  link: {
-    marginTop: 15,
-    paddingVertical: 15,
-  },
-  linkText: {
-    fontSize: 14,
-    color: '#2e78b7',
-  },
-});

@@ -1,21 +1,24 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Picker } from "@react-native-picker/picker";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as DocumentPicker from "expo-document-picker";
+import { File } from "expo-file-system";
 import React, { useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
   Linking,
-  RefreshControl,
-  View,
   Pressable,
+  RefreshControl,
   Text,
+  View,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as DocumentPicker from "expo-document-picker";
-import { File } from "expo-file-system";
-import { decode } from "base64-arraybuffer";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { useT } from "../../src/i18n/LanguageProvider";
 import { supabase } from "../../src/lib/supabase";
-import { Btn, Card, H1, H2, Input, Label, P, ui } from "../../src/ui/atoms";
 import { useAuth } from "../../src/providers/AuthProvider";
+import { AmountText, Btn, Card, Divider, H2, Input, Label, P, SectionLabel, StatusBadge, ui } from "../../src/ui/atoms";
 
 type LabelRow = { id: string; name: string; type: "standard" | "event"; active: boolean };
 type SublabelRow = { id: string; label_id: string; name: string; active: boolean };
@@ -34,12 +37,10 @@ type InvoiceRow = {
   payment_method: PaymentMethod;
   receipt_bucket: string;
   receipt_path: string;
-
   label_id: string;
   label?: { name: string } | null;
   sublabel?: { name: string } | null;
   event?: { title: string } | null;
-
   submitter?: { name: string } | null;
 };
 
@@ -106,21 +107,14 @@ async function fetchInvoices(params: { labelId: string | null; status: string | 
 
 async function uploadReceipt(params: { orgId: string; userId: string; file: PickedFile }) {
   const { orgId, userId, file } = params;
-
-  const arrayBuffer = await new File(file.uri).arrayBuffer(); // no base64, no legacy
-
+  const arrayBuffer = await new File(file.uri).arrayBuffer();
   const safeName = file.name.replace(/[^\w.\-]+/g, "_");
   const path = `orgs/${orgId}/users/${userId}/invoices/${Date.now()}_${safeName}`;
-
   const { data, error } = await supabase.storage.from("receipts").upload(path, arrayBuffer, {
     contentType: file.mimeType,
     upsert: false,
   });
-
-  if (error) {
-  console.log("INVOICE INSERT ERROR", error);
-  throw error;
-}
+  if (error) throw error;
   return { bucket: "receipts", path: data.path };
 }
 
@@ -130,46 +124,66 @@ async function openReceipt(bucket: string, path: string) {
   await Linking.openURL(data.signedUrl);
 }
 
-function TinyBtn({
+const PICKER_CONTAINER = {
+  borderRadius: 12,
+  overflow: "hidden" as const,
+  borderWidth: 1,
+  borderColor: "rgba(255,255,255,0.10)",
+  backgroundColor: "rgba(0,0,0,0.30)",
+};
+
+function ActionBtn({
   title,
   onPress,
   kind = "secondary",
+  active = false,
 }: {
   title: string;
   onPress: () => void;
   kind?: "secondary" | "danger";
+  active?: boolean;
 }) {
-  const bg = kind === "danger" ? "#B42318" : "rgba(255,255,255,0.08)";
-  const border = "rgba(255,255,255,0.12)";
-
   return (
     <Pressable
       onPress={onPress}
-      style={{
+      style={({ pressed }) => ({
         flex: 1,
-        paddingVertical: 8,
+        paddingVertical: 9,
         borderRadius: 10,
-        backgroundColor: bg,
-        borderWidth: 1,
-        borderColor: border,
-        alignItems: "center",
-      }}
+        backgroundColor: active
+          ? "rgba(37,99,235,0.25)"
+          : kind === "danger"
+          ? "rgba(155,28,28,0.55)"
+          : "rgba(255,255,255,0.07)",
+        borderWidth: active ? 1.5 : 1,
+        borderColor: active
+          ? "#2563EB"
+          : kind === "danger"
+          ? "rgba(239,68,68,0.25)"
+          : "rgba(255,255,255,0.11)",
+        alignItems: "center" as const,
+        opacity: pressed ? 0.75 : 1,
+      })}
     >
-      <Text style={{ color: "#EAF0FF", fontWeight: "900", fontSize: 12 }}>{title}</Text>
+      <Text style={{ color: active ? "#93C5FD" : kind === "danger" ? "#FCA5A5" : "#C9D4F2", fontWeight: "700", fontSize: 12 }}>{title}</Text>
     </Pressable>
   );
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 export default function InvoicesScreen() {
   const qc = useQueryClient();
   const { orgId, session, role } = useAuth();
+  const { t } = useT();
+  const insets = useSafeAreaInsets();
   const isTreasurer = role === "treasurer";
 
-  // filters
   const [filterLabelId, setFilterLabelId] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("");
 
-  // form state
   const [labelId, setLabelId] = useState("");
   const [sublabelId, setSublabelId] = useState("");
   const [eventId, setEventId] = useState("");
@@ -206,79 +220,60 @@ export default function InvoicesScreen() {
       multiple: false,
     });
     if (res.canceled) return;
-
     const a = res.assets[0];
-    setFile({
-      uri: a.uri,
-      name: a.name || "invoice.pdf",
-      mimeType: a.mimeType || "application/pdf",
-    });
+    setFile({ uri: a.uri, name: a.name || "invoice.pdf", mimeType: a.mimeType || "application/pdf" });
   };
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (!orgId) throw new Error("Keine Organisation (Onboarding).");
-      if (!session?.user?.id) throw new Error("Nicht eingeloggt.");
-      if (!labelId) throw new Error("Bitte Label auswählen.");
-      if (needsEvent && !eventId) throw new Error("Bitte Veranstaltung auswählen.");
+      if (!orgId) throw new Error(t.invoices.noOrg);
+      if (!session?.user?.id) throw new Error(t.invoices.notLoggedIn);
+      if (!labelId) throw new Error(t.invoices.noLabel);
+      if (needsEvent && !eventId) throw new Error(t.invoices.noEventForLabel);
       const amt = toNumber(amount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Bitte gültigen Betrag eingeben.");
-      if (!file) throw new Error("Bitte PDF auswählen.");
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error(t.invoices.invalidAmount);
+      if (!file) throw new Error(t.invoices.noPdf);
 
       const uploaded = await uploadReceipt({ orgId, userId: session.user.id, file });
       const { data: memberRow, error: memberErr } = await supabase
-  .from("members")
-  .select("id,org_id,user_id,email")
-  .eq("user_id", session.user.id)
-  .eq("org_id", orgId)          // ✅ add this
-  .eq("active", true)
-  .limit(1)
-  .maybeSingle();
+        .from("members")
+        .select("id,org_id,user_id,email")
+        .eq("user_id", session.user.id)
+        .eq("org_id", orgId)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
 
-if (memberErr) throw memberErr;
-if (!memberRow?.id) {
-  throw new Error("Dein Account ist noch nicht als Mitglied verknüpft. Bitte 'Beitreten' im Onboarding nutzen.");
-}
+      if (memberErr) throw memberErr;
+      if (!memberRow?.id) throw new Error(t.invoices.memberNotLinked);
+
       const { error } = await supabase.from("invoices").insert({
-  org_id: orgId,                          // ✅ add
-  submitted_by_user_id: session.user.id,  // ✅ add
-  submitted_by_member_id: memberRow.id,
-
-  label_id: labelId,
-  sublabel_id: sublabelId || null,
-  event_id: needsEvent ? eventId : null,
-
-  payment_method: paymentMethod,
-  vendor: vendor.trim() || null,
-  amount: amt,
-  note: note.trim() || null,
-
-  receipt_bucket: uploaded.bucket,
-  receipt_path: uploaded.path,
-  receipt_file_name: file.name,
-  receipt_mime_type: file.mimeType,
-});
-if (error) {
-  console.log("INVOICE INSERT ERROR", error);
-  throw error;
-}
+        org_id: orgId,
+        submitted_by_user_id: session.user.id,
+        submitted_by_member_id: memberRow.id,
+        label_id: labelId,
+        sublabel_id: sublabelId || null,
+        event_id: needsEvent ? eventId : null,
+        payment_method: paymentMethod,
+        vendor: vendor.trim() || null,
+        amount: amt,
+        note: note.trim() || null,
+        receipt_bucket: uploaded.bucket,
+        receipt_path: uploaded.path,
+        receipt_file_name: file.name,
+        receipt_mime_type: file.mimeType,
+      });
+      if (error) throw error;
     },
     onSuccess: async () => {
-      setVendor("");
-      setAmount("");
-      setNote("");
-      setLabelId("");
-      setSublabelId("");
-      setEventId("");
-      setPaymentMethod("member_out_of_pocket");
-      setFile(null);
+      setVendor(""); setAmount(""); setNote(""); setLabelId("");
+      setSublabelId(""); setEventId(""); setPaymentMethod("member_out_of_pocket"); setFile(null);
       await qc.invalidateQueries({ queryKey: ["invoices"] });
-      Alert.alert("OK", "Rechnung eingereicht.");
+      Alert.alert(t.invoices.submitSuccess, t.invoices.submitSuccessBody);
     },
-    onError: (e: any) => Alert.alert("Fehler", e?.message ?? "Unknown error"),
+    onError: (e: any) => Alert.alert(t.common.error, e?.message ?? "Unknown error"),
   });
 
-  // ✅ treasurer status updates go through RPC (ensures ledger logic)
   const setStatus = useMutation({
     mutationFn: async (p: { id: string; status: InvoiceRow["status"]; method?: PaymentMethod | null }) => {
       const { error } = await supabase.rpc("treasurer_set_invoice_status", {
@@ -290,9 +285,9 @@ if (error) {
     },
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["invoices"] });
-      await qc.invalidateQueries({ queryKey: ["board"] }); // ledger may change
+      await qc.invalidateQueries({ queryKey: ["board"] });
     },
-    onError: (e: any) => Alert.alert("Fehler", e?.message ?? "Unknown error"),
+    onError: (e: any) => Alert.alert(t.common.error, e?.message ?? "Unknown error"),
   });
 
   return (
@@ -300,28 +295,24 @@ if (error) {
       <FlatList
         data={invoicesQ.data ?? []}
         keyExtractor={(x) => x.id}
-        refreshControl={<RefreshControl refreshing={invoicesQ.isFetching} onRefresh={invoicesQ.refetch} tintColor="#EAF0FF" />}
-        contentContainerStyle={ui.content}
+        refreshControl={
+          <RefreshControl refreshing={invoicesQ.isFetching} onRefresh={invoicesQ.refetch} tintColor="#4D8AFF" />
+        }
+        contentContainerStyle={[ui.content, { paddingBottom: 56 + insets.bottom + 16 }]}
         ListHeaderComponent={
-          <View style={{ gap: 12 }}>
-            <H1>Rechnungen</H1>
-
+          <KeyboardAwareScrollView style={{ gap: 14 }} enableAutomaticScroll extraScrollHeight={20} keyboardShouldPersistTaps="handled">
             <Card>
-              <H2>Rechnung einreichen</H2>
+              <H2>{t.invoices.submitTitle}</H2>
 
-              <Label>Label</Label>
-              <View style={{ borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(0,0,0,0.25)" }}>
+              <Label>{t.invoices.label}</Label>
+              <View style={PICKER_CONTAINER}>
                 <Picker
                   selectedValue={labelId}
-                  onValueChange={(v) => {
-                    setLabelId(String(v));
-                    setSublabelId("");
-                    setEventId("");
-                  }}
+                  onValueChange={(v) => { setLabelId(String(v)); setSublabelId(""); setEventId(""); }}
                   style={{ color: "#EAF0FF" }}
                   dropdownIconColor="#EAF0FF"
                 >
-                  <Picker.Item label="Bitte auswählen…" value="" />
+                  <Picker.Item label={t.common.pleaseSelect} value="" />
                   {(labelsQ.data ?? []).map((l) => (
                     <Picker.Item key={l.id} label={l.name} value={l.id} />
                   ))}
@@ -330,10 +321,10 @@ if (error) {
 
               {needsEvent ? (
                 <>
-                  <Label>Veranstaltung</Label>
-                  <View style={{ borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(0,0,0,0.25)" }}>
+                  <Label>{t.invoices.event}</Label>
+                  <View style={PICKER_CONTAINER}>
                     <Picker selectedValue={eventId} onValueChange={(v) => setEventId(String(v))} style={{ color: "#EAF0FF" }} dropdownIconColor="#EAF0FF">
-                      <Picker.Item label="Bitte auswählen…" value="" />
+                      <Picker.Item label={t.common.pleaseSelect} value="" />
                       {(eventsQ.data ?? []).map((e) => (
                         <Picker.Item key={e.id} label={e.title} value={e.id} />
                       ))}
@@ -342,115 +333,187 @@ if (error) {
                 </>
               ) : null}
 
-              <Label>Sublabel (optional)</Label>
-              <View style={{ borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(0,0,0,0.25)" }}>
+              <Label>{t.invoices.sublabel}</Label>
+              <View style={PICKER_CONTAINER}>
                 <Picker selectedValue={sublabelId} onValueChange={(v) => setSublabelId(String(v))} style={{ color: "#EAF0FF" }} dropdownIconColor="#EAF0FF">
-                  <Picker.Item label="Kein Sublabel" value="" />
+                  <Picker.Item label={t.invoices.noSublabel} value="" />
                   {(sublabelsQ.data ?? []).map((s) => (
                     <Picker.Item key={s.id} label={s.name} value={s.id} />
                   ))}
                 </Picker>
               </View>
 
-              <Label>Zahlart</Label>
-              <View style={{ borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(0,0,0,0.25)" }}>
+              <Label>{t.invoices.paymentMethod}</Label>
+              <View style={PICKER_CONTAINER}>
                 <Picker selectedValue={paymentMethod} onValueChange={(v) => setPaymentMethod(String(v) as PaymentMethod)} style={{ color: "#EAF0FF" }} dropdownIconColor="#EAF0FF">
-                  <Picker.Item label="Privat bezahlt (Erstattung)" value="member_out_of_pocket" />
-                  <Picker.Item label="CC-Karte (keine Erstattung)" value="company_card" />
+                  <Picker.Item label={t.invoices.paymentPrivate} value="member_out_of_pocket" />
+                  <Picker.Item label={t.invoices.paymentCard} value="company_card" />
                 </Picker>
               </View>
 
-              <Label>Vendor (optional)</Label>
-              <Input value={vendor} onChangeText={setVendor} placeholder="z.B. Bauhaus" />
+              <Label>{t.invoices.vendor}</Label>
+              <Input value={vendor} onChangeText={setVendor} placeholder={t.invoices.vendorPlaceholder} />
 
-              <Label>Betrag</Label>
-              <Input value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="z.B. 12.50" />
+              <Label>{t.invoices.amount}</Label>
+              <Input value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder={t.invoices.amountPlaceholder} />
 
-              <Label>Notiz (optional)</Label>
-              <Input value={note} onChangeText={setNote} placeholder="Kurze Notiz" />
+              <Label>{t.invoices.note}</Label>
+              <Input value={note} onChangeText={setNote} placeholder={t.invoices.notePlaceholder} />
 
-              <Btn title={file ? `PDF: ${file.name}` : "PDF auswählen"} variant="secondary" onPress={pickPdf} />
-              <Btn title={submit.isPending ? "Sende..." : "Einreichen"} onPress={() => submit.mutate()} disabled={submit.isPending} />
+              <Pressable
+                onPress={pickPdf}
+                style={({ pressed }) => ({
+                  borderRadius: 12,
+                  borderWidth: 1.5,
+                  borderStyle: "dashed" as const,
+                  borderColor: file ? "#4D8AFF" : "rgba(255,255,255,0.15)",
+                  backgroundColor: file ? "rgba(46,107,255,0.08)" : "rgba(0,0,0,0.15)",
+                  paddingVertical: 14,
+                  alignItems: "center" as const,
+                  gap: 6,
+                  opacity: pressed ? 0.75 : 1,
+                })}
+              >
+                <Ionicons name={file ? "document-text" : "cloud-upload-outline"} size={22} color={file ? "#4D8AFF" : "#7A8AAD"} />
+                <Text style={{ color: file ? "#93C5FD" : "#7A8AAD", fontSize: 13, fontWeight: "600" }}>
+                  {file ? file.name : t.invoices.pickPdf}
+                </Text>
+              </Pressable>
+
+              <Btn
+                title={submit.isPending ? t.invoices.submitting : t.invoices.submit}
+                onPress={() => submit.mutate()}
+                disabled={submit.isPending}
+              />
             </Card>
 
             <Card>
-              <H2>Filter</H2>
+              <H2>{t.invoices.filterTitle}</H2>
 
-              <Label>Status</Label>
-              <View style={{ borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(0,0,0,0.25)" }}>
+              <Label>{t.invoices.filterStatus}</Label>
+              <View style={PICKER_CONTAINER}>
                 <Picker selectedValue={filterStatus} onValueChange={(v) => setFilterStatus(String(v))} style={{ color: "#EAF0FF" }} dropdownIconColor="#EAF0FF">
-                  <Picker.Item label="Alle" value="" />
-                  <Picker.Item label="Eingereicht" value="submitted" />
-                  <Picker.Item label="Überprüft" value="reviewed" />
-                  <Picker.Item label="Angenommen" value="approved" />
-                  <Picker.Item label="Eingetragen" value="paid" />
-                  <Picker.Item label="Abgelehnt" value="rejected" />
+                  <Picker.Item label={t.common.all} value="" />
+                  <Picker.Item label={t.status.submitted} value="submitted" />
+                  <Picker.Item label={t.status.reviewed} value="reviewed" />
+                  <Picker.Item label={t.status.approved} value="approved" />
+                  <Picker.Item label={t.status.paid} value="paid" />
+                  <Picker.Item label={t.status.rejected} value="rejected" />
                 </Picker>
               </View>
 
-              <Label>Label</Label>
-              <View style={{ borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(0,0,0,0.25)" }}>
+              <Label>{t.invoices.filterLabel}</Label>
+              <View style={PICKER_CONTAINER}>
                 <Picker selectedValue={filterLabelId} onValueChange={(v) => setFilterLabelId(String(v))} style={{ color: "#EAF0FF" }} dropdownIconColor="#EAF0FF">
-                  <Picker.Item label="Alle" value="" />
+                  <Picker.Item label={t.common.all} value="" />
                   {(labelsQ.data ?? []).map((l) => (
                     <Picker.Item key={l.id} label={l.name} value={l.id} />
                   ))}
                 </Picker>
               </View>
 
-              <P dim>{isTreasurer ? "Treasurer sieht alle Rechnungen." : "Du siehst nur deine eigenen Rechnungen."}</P>
+              <P dim>{isTreasurer ? t.invoices.treasurerSeeAll : t.invoices.memberSeeOwn}</P>
             </Card>
 
-            <H2>Liste</H2>
-          </View>
+            {(invoicesQ.data ?? []).length > 0 ? (
+              <SectionLabel title={t.invoices.list} meta={t.common.entries((invoicesQ.data ?? []).length)} />
+            ) : null}
+          </KeyboardAwareScrollView>
+        }
+        ListEmptyComponent={
+          !invoicesQ.isFetching ? (
+            <View style={{ alignItems: "center", paddingVertical: 40, gap: 10 }}>
+              <Ionicons name="receipt-outline" size={40} color="#2A3550" />
+              <Text style={{ color: "#4A5672", fontSize: 14 }}>{t.invoices.noInvoices}</Text>
+            </View>
+          ) : null
         }
         renderItem={({ item }) => (
           <Card>
-            <H2>{item.vendor ?? "Unbekannt"}</H2>
-            <P>
-              {toNumber(item.amount)} {item.currency} · {item.status}
-            </P>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontSize: 16, fontWeight: "800", color: "#EAF0FF" }}>
+                  {item.vendor ?? t.common.unknown}
+                </Text>
+                <Text style={{ color: "#7A8AAD", fontSize: 12 }}>
+                  {item.label?.name ?? "—"}{item.sublabel?.name ? ` · ${item.sublabel.name}` : ""}
+                </Text>
+              </View>
+              <AmountText amount={toNumber(item.amount)} currency={item.currency} />
+            </View>
 
-            <P dim>
-              Zahlung: {item.payment_method === "company_card" ? "Firmenkarte" : "Privat (Erstattung)"}
-            </P>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <StatusBadge status={item.status} t={t} />
+              <Text style={{ color: "#4A5672", fontSize: 12 }}>
+                {item.payment_method === "company_card" ? t.invoices.paymentCardShort : t.invoices.paymentPrivateShort}
+              </Text>
+            </View>
 
-            <P dim>
-              Label: {item.label?.name ?? "—"} · Sublabel: {item.sublabel?.name ?? "—"}
-            </P>
-            {item.event?.title ? <P dim>Event: {item.event.title}</P> : null}
-            {item.note ? <P dim>Notiz: {item.note}</P> : null}
-
-            {isTreasurer ? <P dim>Eingereicht von: {item.submitter?.name ?? "—"}</P> : null}
-
-            <Btn
-              title="PDF öffnen"
-              variant="secondary"
-              onPress={async () => {
-                try {
-                  await openReceipt(item.receipt_bucket, item.receipt_path);
-                } catch (e: any) {
-                  Alert.alert("Fehler", e?.message ?? "Kann PDF nicht öffnen.");
-                }
-              }}
-            />
-
-            {isTreasurer ? (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <TinyBtn title="Überprüfen" onPress={() => setStatus.mutate({ id: item.id, status: "reviewed" })} />
-                <TinyBtn title="Annehmen" onPress={() => setStatus.mutate({ id: item.id, status: "approved" })} />
+            {item.event?.title ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="calendar-outline" size={13} color="#7A8AAD" />
+                <Text style={{ color: "#7A8AAD", fontSize: 13 }}>{item.event.title}</Text>
               </View>
             ) : null}
 
-            {isTreasurer ? (
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                <TinyBtn title="Eingetragen (Erstattung)" onPress={() => setStatus.mutate({ id: item.id, status: "paid", method: "member_out_of_pocket" })} />
-                <TinyBtn title="Eingetragen (Karte)" onPress={() => setStatus.mutate({ id: item.id, status: "paid", method: "company_card" })} />
-                <TinyBtn kind="danger" title="Abgelehnt" onPress={() => setStatus.mutate({ id: item.id, status: "rejected" })} />
+            {item.note ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="chatbubble-ellipses-outline" size={13} color="#7A8AAD" />
+                <Text style={{ color: "#7A8AAD", fontSize: 13 }}>{item.note}</Text>
               </View>
             ) : null}
 
-            <P dim>{new Date(item.created_at).toLocaleString()}</P>
+            {isTreasurer && item.submitter?.name ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Ionicons name="person-outline" size={13} color="#7A8AAD" />
+                <Text style={{ color: "#7A8AAD", fontSize: 13 }}>{item.submitter.name}</Text>
+              </View>
+            ) : null}
+
+            <Divider />
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: "#4A5672", fontSize: 12 }}>{formatDate(item.created_at)}</Text>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    await openReceipt(item.receipt_bucket, item.receipt_path);
+                  } catch (e: any) {
+                    Alert.alert(t.common.error, e?.message ?? t.invoices.pdfError);
+                  }
+                }}
+                style={({ pressed }) => ({
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  opacity: pressed ? 0.65 : 1,
+                  backgroundColor: "rgba(77,138,255,0.12)",
+                  paddingHorizontal: 10,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                })}
+              >
+                <Ionicons name="document-text-outline" size={14} color="#4D8AFF" />
+                <Text style={{ color: "#4D8AFF", fontSize: 13, fontWeight: "700" }}>{t.invoices.openPdf}</Text>
+              </Pressable>
+            </View>
+
+            {isTreasurer ? (
+              <>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <ActionBtn
+                    title={t.invoices.actionApprove}
+                    onPress={() => setStatus.mutate({ id: item.id, status: "approved" })}
+                    active={item.status === "approved"}
+                  />
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <ActionBtn title={t.invoices.actionPayPrivate} onPress={() => setStatus.mutate({ id: item.id, status: "paid", method: "member_out_of_pocket" })} />
+                  <ActionBtn title={t.invoices.actionPayCard} onPress={() => setStatus.mutate({ id: item.id, status: "paid", method: "company_card" })} />
+                  <ActionBtn kind="danger" title={t.invoices.actionReject} onPress={() => setStatus.mutate({ id: item.id, status: "rejected" })} />
+                </View>
+              </>
+            ) : null}
           </Card>
         )}
       />
